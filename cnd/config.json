@@ -1,0 +1,4 @@
+{
+  "ocr_image_size": [64, 160],
+  "data_path": "/workdir/data/"
+}
