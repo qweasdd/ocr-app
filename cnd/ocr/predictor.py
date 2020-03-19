@@ -2,10 +2,11 @@ import torch
 from cnd.ocr.converter import strLabelConverter
 from cnd.ocr.model import CRNN
 import string
+import cv2
 
 
 class Predictor:
-    def __init__(self, model_path, image_size, device="cuda"):
+    def __init__(self, model_path, transform, device="cuda"):
         
         alphabet = " "
         alphabet += string.ascii_uppercase
@@ -17,15 +18,15 @@ class Predictor:
         "number_class_symbols" : len(alphabet) + 1, 
         "rnn_size" : 64
         }
-        state_dict = torch.load(model_path)['model_state_dict']
+        state_dict = torch.load(model_path, map_location = 'cpu')['model_state_dict']
         self.model = CRNN(**MODEL_PARAMS)
         self.model.load_state_dict(state_dict)
         self.model = self.model.to(device)
         self.model = self.model.eval()
         
         self.device = device
-        self.ocr_image_size = image_size
         self.converter = strLabelConverter(alphabet)
+        self.transform = transform
         
     def preds_converter(self, logits, len_images):
         preds_size = torch.IntTensor([logits.size(0)] * len_images)
@@ -35,23 +36,24 @@ class Predictor:
         return sim_preds
 
     def predict(self, images):
-        #TODO: check for correct input type, you can receive one image [x,y,3] or batch [b,x,y,3]
         
-        if (images.shape[-1] != 3):
-            return None
+        torch_images = []
+        for image in images:
         
-        if (len(images.shape) == 3):
-            images = images.unsqueeze(0)
-        elif (len(images.shape) != 4):
-              return None
+            if (image.shape[-1] != 3):
+                raise Exception("Wrong image format")
+
+            image = self.transform(image).unsqueeze(0).to(self.device)
+            torch_images.append(image)
             
-        images = images.permute(0, 3, 1, 2).to(self.device)
-        
-        images = images.float() / 255
-              
+         
+        input_images = torch.cat(torch_images, dim = 0)
         with torch.no_grad():      
-            predict = self.model(images)
-            
-            text = self.preds_converter(predict, images.shape[0])
+            predict = self.model(input_images)
+            text = self.preds_converter(predict, input_images.shape[0])
+        
+        for i in range(len(text)):
+            if text[i].replace(" ", "") == "":
+                text[i] = None
         
         return text
